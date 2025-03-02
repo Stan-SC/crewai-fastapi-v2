@@ -28,20 +28,30 @@ class QuestionCrew:
 
         logger.debug(f"Texte complet reçu dans _extract_final_answer: {json.dumps(text)}")
 
-        # Recherche du pattern "Final Answer:"
-        if "Final Answer:" in text:
-            try:
-                # Extraction de tout ce qui suit "Final Answer:"
-                answer = text.split("Final Answer:", 1)[1].strip()
-                logger.info(f"Réponse extraite après 'Final Answer:': {json.dumps(answer)}")
+        # Nettoyage initial du texte
+        text = text.strip()
+        
+        # Recherche du pattern "Final Answer:" avec gestion des sauts de ligne
+        pattern = r'Final Answer:\s*(.*?)(?=\n\s*(?:Thought:|Human:|Assistant:|$)|$)'
+        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+        
+        if match:
+            answer = match.group(1).strip()
+            logger.info(f"Réponse extraite avec le pattern 'Final Answer:': {json.dumps(answer)}")
+            if answer:  # Vérifie que la réponse n'est pas vide
                 return answer
-            except Exception as e:
-                logger.error(f"Erreur lors de l'extraction après 'Final Answer:': {str(e)}")
-                return ""
+
+        # Si le pattern n'a pas fonctionné, essayons de trouver la dernière occurrence de "Final Answer:"
+        parts = text.split("Final Answer:")
+        if len(parts) > 1:
+            answer = parts[-1].strip()  # Prend la dernière partie après "Final Answer:"
+            logger.info(f"Réponse extraite après le dernier 'Final Answer:': {json.dumps(answer)}")
+            if answer:  # Vérifie que la réponse n'est pas vide
+                return answer
 
         # Si aucun pattern ne correspond, retourner le texte complet
-        logger.info("Aucun pattern ne correspond, retour du texte complet")
-        return text.strip()
+        logger.info(f"Aucun pattern ne correspond, retour du texte complet: {json.dumps(text)}")
+        return text
 
     def _extract_score(self, quality_result: str) -> float:
         """Extrait le score numérique de la réponse du Quality Controller."""
@@ -205,14 +215,23 @@ class QuestionCrew:
             
             # Création et exécution de la tâche de reformulation
             task1 = Task(
-                description=f"""Analysez et reformulez la question suivante pour plus de clarté : {question}
-                IMPORTANT: Votre réponse doit être une question reformulée, rien d'autre.
-                Exemple de format attendu: "Quels sont les principaux attraits touristiques de la ville de Grasse ?"
+                description=f"""INSTRUCTIONS TRÈS IMPORTANTES:
+                Votre tâche est de reformuler la question suivante de manière claire et précise : 
+                "{question}"
                 
-                Répondez UNIQUEMENT avec la question reformulée, sans autre texte.
+                RÈGLES À SUIVRE:
+                1. Gardez la même intention que la question originale
+                2. Soyez clair et direct
+                3. Ne changez pas le sens de la question
+                4. Utilisez un français correct
+                5. Ne donnez AUCUNE explication ou commentaire
                 
-                Format de réponse attendu:
-                Final Answer: [VOTRE QUESTION REFORMULÉE]""",
+                FORMAT DE RÉPONSE REQUIS:
+                Final Answer: [VOTRE QUESTION REFORMULÉE]
+                
+                EXEMPLE:
+                Si la question est "c koi Grasse?", votre réponse devrait être:
+                Final Answer: Pouvez-vous décrire la ville de Grasse et ses caractéristiques principales ?""",
                 agent=self.prompt_manager
             )
             refined_question = self._execute_task(task1, "Prompt Manager")
