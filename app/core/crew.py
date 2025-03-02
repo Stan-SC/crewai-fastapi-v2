@@ -138,6 +138,15 @@ class QuestionCrew:
                 logger.error(f"Tâche invalide pour {crew_name}")
                 return ""
                 
+            # Modification de la description pour forcer le format de réponse
+            task.description = f"""{task.description}
+
+                TRÈS IMPORTANT: Votre réponse DOIT commencer par 'Final Answer:' suivi d'un espace.
+                Si vous ne suivez pas ce format, votre réponse sera rejetée.
+                
+                Exemple de format correct:
+                Final Answer: Voici ma réponse..."""
+                
             # Création et exécution de l'équipage
             crew = Crew(
                 agents=[task.agent],
@@ -148,6 +157,7 @@ class QuestionCrew:
             # Exécution avec retry en cas d'erreur
             max_retries = 3
             retry_count = 0
+            base_delay = 5  # Délai de base en secondes
             
             while retry_count < max_retries:
                 try:
@@ -158,19 +168,32 @@ class QuestionCrew:
                     if not result or len(result) == 0:
                         logger.error(f"Aucun résultat obtenu pour {crew_name} (tentative {retry_count + 1}/{max_retries})")
                         retry_count += 1
+                        time.sleep(base_delay * (retry_count + 1))  # Délai exponentiel
                         continue
+                    
+                    # Log du résultat brut
+                    logger.debug(f"Résultat brut pour {crew_name}: {json.dumps(result[0])}")
                     
                     # Extraction et validation de la réponse
                     response = self._extract_final_answer(result[0])
                     if not response:
                         logger.warning(f"Réponse vide obtenue pour {crew_name} (tentative {retry_count + 1}/{max_retries})")
                         retry_count += 1
+                        time.sleep(base_delay * (retry_count + 1))
                         continue
                     
                     # Vérification de la qualité de la réponse
                     if len(response.strip()) < 5:  # Réponse trop courte
                         logger.warning(f"Réponse trop courte pour {crew_name} (tentative {retry_count + 1}/{max_retries})")
                         retry_count += 1
+                        time.sleep(base_delay * (retry_count + 1))
+                        continue
+                        
+                    # Vérification supplémentaire pour le format Final Answer
+                    if not any(pattern in result[0] for pattern in ['Final Answer:', 'Answer:', 'Response:']):
+                        logger.warning(f"Format de réponse incorrect pour {crew_name} (tentative {retry_count + 1}/{max_retries})")
+                        retry_count += 1
+                        time.sleep(base_delay * (retry_count + 1))
                         continue
                         
                     logger.info(f"Réponse obtenue pour {crew_name}: {json.dumps(response)}")
@@ -179,10 +202,7 @@ class QuestionCrew:
                 except Exception as e:
                     logger.error(f"Erreur lors de la tentative {retry_count + 1}/{max_retries} pour {crew_name}: {str(e)}")
                     retry_count += 1
-                    
-                # Attente entre les tentatives
-                if retry_count < max_retries:
-                    time.sleep(2)  # Attente de 2 secondes entre les tentatives
+                    time.sleep(base_delay * (retry_count + 1))
             
             logger.error(f"Échec de toutes les tentatives pour {crew_name}")
             return ""
