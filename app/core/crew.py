@@ -132,26 +132,60 @@ class QuestionCrew:
         """Exécute une tâche avec un équipage d'un seul agent et retourne la réponse."""
         try:
             logger.info(f"Exécution de la tâche pour {crew_name}...")
+            
+            # Vérification des paramètres
+            if not task or not task.agent:
+                logger.error(f"Tâche invalide pour {crew_name}")
+                return ""
+                
+            # Création et exécution de l'équipage
             crew = Crew(
                 agents=[task.agent],
                 tasks=[task],
                 verbose=True
             )
             
-            # Exécution de la tâche
-            result = crew.kickoff()
-            if not result or len(result) == 0:
-                logger.error(f"Aucun résultat obtenu pour {crew_name}")
-                return ""
-                
-            # Extraction et validation de la réponse
-            response = self._extract_final_answer(result[0])
-            if not response:
-                logger.warning(f"Réponse vide obtenue pour {crew_name}")
-                return ""
-                
-            logger.info(f"Réponse obtenue pour {crew_name}: {json.dumps(response)}")
-            return response
+            # Exécution avec retry en cas d'erreur
+            max_retries = 3
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    # Exécution de la tâche
+                    result = crew.kickoff()
+                    
+                    # Vérification du résultat
+                    if not result or len(result) == 0:
+                        logger.error(f"Aucun résultat obtenu pour {crew_name} (tentative {retry_count + 1}/{max_retries})")
+                        retry_count += 1
+                        continue
+                    
+                    # Extraction et validation de la réponse
+                    response = self._extract_final_answer(result[0])
+                    if not response:
+                        logger.warning(f"Réponse vide obtenue pour {crew_name} (tentative {retry_count + 1}/{max_retries})")
+                        retry_count += 1
+                        continue
+                    
+                    # Vérification de la qualité de la réponse
+                    if len(response.strip()) < 5:  # Réponse trop courte
+                        logger.warning(f"Réponse trop courte pour {crew_name} (tentative {retry_count + 1}/{max_retries})")
+                        retry_count += 1
+                        continue
+                        
+                    logger.info(f"Réponse obtenue pour {crew_name}: {json.dumps(response)}")
+                    return response
+                    
+                except Exception as e:
+                    logger.error(f"Erreur lors de la tentative {retry_count + 1}/{max_retries} pour {crew_name}: {str(e)}")
+                    retry_count += 1
+                    
+                # Attente entre les tentatives
+                if retry_count < max_retries:
+                    time.sleep(2)  # Attente de 2 secondes entre les tentatives
+            
+            logger.error(f"Échec de toutes les tentatives pour {crew_name}")
+            return ""
             
         except Exception as e:
             logger.error(f"Erreur lors de l'exécution de la tâche pour {crew_name}: {str(e)}")
