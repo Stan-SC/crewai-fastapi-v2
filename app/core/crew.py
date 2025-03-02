@@ -150,9 +150,35 @@ class QuestionCrew:
                 agent=self.quality_controller
             )
 
+            # Création et exécution du crew initial
+            logger.info("Création du crew initial...")
+            initial_crew = Crew(
+                agents=[self.prompt_manager, self.ai_analyst, self.quality_controller],
+                tasks=[task1, task2, task3],
+                verbose=True
+            )
+
+            logger.info("Démarrage de l'exécution du crew initial")
+            initial_result = initial_crew.kickoff()
+            
+            # Traitement des résultats initiaux
+            refined = self._safe_str(initial_result[0])
+            answer = self._safe_str(initial_result[1])
+            quality = self._safe_str(initial_result[2])
+            score = self._extract_score(quality)
+            
+            # Création de la tâche du manager avec les résultats
             task4 = Task(
-                description="""Validez la réponse finale et envoyez-la.
-                IMPORTANT: Votre réponse doit suivre ce format exact:
+                description=f"""Validez la réponse finale et envoyez-la.
+                
+                Question raffinée: {refined}
+                Réponse proposée: {answer}
+                Score de qualité: {score}
+                
+                IMPORTANT: Si le score est >= 0.7, vous devez valider la réponse.
+                Si le score est < 0.7, vous devez rejeter la réponse.
+                
+                Votre réponse doit suivre ce format exact:
                 'validé|[RÉPONSE FINALE]' ou 'rejeté|[RAISON DU REJET]'
                 
                 Exemple de réponse validée:
@@ -163,25 +189,22 @@ class QuestionCrew:
                 agent=self.general_manager
             )
 
-            # Création et exécution du crew
-            logger.info("Création du crew...")
-            crew = Crew(
-                agents=[self.prompt_manager, self.ai_analyst, self.quality_controller, self.general_manager],
-                tasks=[task1, task2, task3, task4],
+            # Exécution de la tâche du manager
+            logger.info("Exécution de la tâche du manager...")
+            manager_crew = Crew(
+                agents=[self.general_manager],
+                tasks=[task4],
                 verbose=True
             )
-
-            logger.info("Démarrage de l'exécution du crew")
-            result = crew.kickoff()
+            manager_result = manager_crew.kickoff()
             
-            # Ajout d'un délai de 5 secondes pour la coordination
-            logger.info("Attente de 5 secondes pour la coordination des agents...")
-            time.sleep(5)
-            
-            logger.info("Crew terminé, traitement des résultats")
-
             # Traitement des résultats
-            processed_results = self._process_task_results(result)
+            processed_results = {
+                "refined_question": refined,
+                "initial_answer": answer,
+                "quality_score": score,
+                **self._extract_manager_response(self._safe_str(manager_result[0]))
+            }
             
             response = {
                 "original_question": question,
