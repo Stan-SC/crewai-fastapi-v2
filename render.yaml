@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: crewai-fastapi
+    env: python
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: ./start.sh
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.12
+      - key: OPENAI_API_KEY
+        sync: false
+    healthCheckPath: /health
+    autoDeploy: true 
