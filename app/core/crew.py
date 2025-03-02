@@ -131,47 +131,70 @@ class QuestionCrew:
                 description=f"""Analysez et reformulez la question suivante pour plus de clarté : {question}
                 IMPORTANT: Votre réponse doit être une question reformulée, rien d'autre.
                 Exemple de format attendu: "Quels sont les principaux attraits touristiques de la ville de Grasse ?"
-                """,
-                agent=self.prompt_manager
+                
+                Répondez UNIQUEMENT avec la question reformulée, sans autre texte.""",
+                agent=self.prompt_manager,
+                output_format="La question reformulée uniquement"
             )
 
+            # Attente de la question reformulée
+            logger.info("Obtention de la question reformulée...")
+            initial_crew = Crew(
+                agents=[self.prompt_manager],
+                tasks=[task1],
+                verbose=True
+            )
+            refined_question = self._safe_str(initial_crew.kickoff()[0])
+            logger.info(f"Question reformulée: {json.dumps(refined_question)}")
+
+            # Création de la tâche d'analyse
             task2 = Task(
-                description="""Générez une réponse détaillée et précise basée sur la question reformulée.
+                description=f"""Générez une réponse détaillée et précise à cette question : {refined_question}
                 IMPORTANT: Votre réponse doit être concise mais complète.
-                Concentrez-vous sur les faits les plus importants.""",
-                agent=self.ai_analyst
+                Concentrez-vous sur les faits les plus importants.
+                
+                Répondez directement avec les informations, sans formules de politesse.""",
+                agent=self.ai_analyst,
+                output_format="La réponse directe sans formules de politesse"
             )
 
+            # Obtention de la réponse
+            logger.info("Obtention de la réponse...")
+            analyst_crew = Crew(
+                agents=[self.ai_analyst],
+                tasks=[task2],
+                verbose=True
+            )
+            answer = self._safe_str(analyst_crew.kickoff()[0])
+            logger.info(f"Réponse générée: {json.dumps(answer)}")
+
+            # Évaluation de la qualité
             task3 = Task(
-                description="""Évaluez la qualité et la pertinence de la réponse générée.
+                description=f"""Évaluez la qualité et la pertinence de cette réponse : {answer}
                 IMPORTANT: Vous devez fournir UNIQUEMENT un score numérique au format 'Score: X.XX'.
                 Exemple: 'Score: 0.95'
                 Ne donnez aucune autre information ou explication.""",
-                agent=self.quality_controller
+                agent=self.quality_controller,
+                output_format="Score: X.XX"
             )
 
-            # Création et exécution du crew initial
-            logger.info("Création du crew initial...")
-            initial_crew = Crew(
-                agents=[self.prompt_manager, self.ai_analyst, self.quality_controller],
-                tasks=[task1, task2, task3],
+            # Obtention du score
+            logger.info("Évaluation de la qualité...")
+            quality_crew = Crew(
+                agents=[self.quality_controller],
+                tasks=[task3],
                 verbose=True
             )
-
-            logger.info("Démarrage de l'exécution du crew initial")
-            initial_result = initial_crew.kickoff()
-            
-            # Traitement des résultats initiaux
-            refined = self._safe_str(initial_result[0])
-            answer = self._safe_str(initial_result[1])
-            quality = self._safe_str(initial_result[2])
+            quality = self._safe_str(quality_crew.kickoff()[0])
             score = self._extract_score(quality)
-            
-            # Création de la tâche du manager avec les résultats
+            logger.info(f"Score de qualité: {score}")
+
+            # Validation finale
             task4 = Task(
                 description=f"""Validez la réponse finale et envoyez-la.
                 
-                Question raffinée: {refined}
+                Question initiale: {question}
+                Question reformulée: {refined_question}
                 Réponse proposée: {answer}
                 Score de qualité: {score}
                 
@@ -182,33 +205,33 @@ class QuestionCrew:
                 'validé|[RÉPONSE FINALE]' ou 'rejeté|[RAISON DU REJET]'
                 
                 Exemple de réponse validée:
-                'validé|Grasse est mondialement connue comme la capitale mondiale du parfum. La ville abrite de nombreuses parfumeries historiques et propose des visites guidées des usines de parfum.'
+                'validé|[COPIEZ LA RÉPONSE ICI SI ELLE EST SATISFAISANTE]'
                 
                 Exemple de réponse rejetée:
                 'rejeté|La réponse manque de précision et de sources fiables.'""",
-                agent=self.general_manager
+                agent=self.general_manager,
+                output_format="validé|RÉPONSE ou rejeté|RAISON"
             )
 
-            # Exécution de la tâche du manager
-            logger.info("Exécution de la tâche du manager...")
+            # Obtention de la validation
+            logger.info("Validation finale...")
             manager_crew = Crew(
                 agents=[self.general_manager],
                 tasks=[task4],
                 verbose=True
             )
-            manager_result = manager_crew.kickoff()
+            manager_result = self._safe_str(manager_crew.kickoff()[0])
+            manager_response = self._extract_manager_response(manager_result)
+            logger.info(f"Validation du manager: {json.dumps(manager_response)}")
             
-            # Traitement des résultats
-            processed_results = {
-                "refined_question": refined,
-                "initial_answer": answer,
-                "quality_score": score,
-                **self._extract_manager_response(self._safe_str(manager_result[0]))
-            }
-            
+            # Préparation de la réponse finale
             response = {
                 "original_question": question,
-                **processed_results
+                "refined_question": refined_question,
+                "initial_answer": answer,
+                "quality_score": score,
+                "status": manager_response["status"],
+                "final_answer": manager_response["final_answer"]
             }
             
             logger.info(f"Réponse finale préparée: {json.dumps(response, ensure_ascii=False)}")
