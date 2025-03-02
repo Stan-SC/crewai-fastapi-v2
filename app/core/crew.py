@@ -24,15 +24,40 @@ class QuestionCrew:
         """Extrait la réponse finale du texte complet."""
         try:
             if not text:
+                logger.warning("Texte vide reçu dans _extract_final_answer")
                 return ""
-            # Recherche le texte après "Final Answer:"
-            match = re.search(r'Final Answer:\s*(.*?)(?=\n|$)', text, re.DOTALL)
-            if match:
-                return match.group(1).strip()
-            return text.strip()
+
+            # Nettoyage du texte
+            text = text.strip()
+            if not text:
+                logger.warning("Texte vide après nettoyage dans _extract_final_answer")
+                return ""
+
+            # Log du texte complet pour le débogage
+            logger.debug(f"Texte complet reçu dans _extract_final_answer: {json.dumps(text)}")
+
+            # Recherche différents patterns possibles
+            patterns = [
+                r'Final Answer:\s*(.*?)(?=\n|$)',  # Format standard
+                r'Answer:\s*(.*?)(?=\n|$)',        # Format alternatif
+                r'Response:\s*(.*?)(?=\n|$)',      # Autre format possible
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, text, re.DOTALL)
+                if match:
+                    answer = match.group(1).strip()
+                    logger.info(f"Réponse extraite avec le pattern '{pattern}': {json.dumps(answer)}")
+                    return answer
+
+            # Si aucun pattern ne correspond, retourner le texte complet
+            logger.info(f"Aucun pattern ne correspond, retour du texte complet: {json.dumps(text)}")
+            return text
+
         except Exception as e:
             logger.error(f"Erreur lors de l'extraction de la réponse finale: {str(e)}")
-            return text.strip()
+            logger.error(f"Texte qui a causé l'erreur: {json.dumps(text)}")
+            return text if text else ""
 
     def _extract_score(self, quality_result: str) -> float:
         """Extrait le score numérique de la réponse du Quality Controller."""
@@ -44,12 +69,19 @@ class QuestionCrew:
                 return 0.5
             
             # Recherche un nombre entre 0 et 1 dans le texte
-            match = re.search(r'Score:\s*([0-9]*\.?[0-9]+)', quality_result)
-            if match:
-                score = float(match.group(1))
-                score = min(max(score, 0.0), 1.0)  # Assure que le score est entre 0 et 1
-                logger.info(f"Score extrait avec succès: {score}")
-                return score
+            patterns = [
+                r'Score:\s*([0-9]*\.?[0-9]+)',  # Format standard
+                r'([0-9]*\.?[0-9]+)/1\.0',      # Format fraction
+                r'([0-9]*\.?[0-9]+)\s*sur\s*1', # Format texte
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, quality_result)
+                if match:
+                    score = float(match.group(1))
+                    score = min(max(score, 0.0), 1.0)  # Assure que le score est entre 0 et 1
+                    logger.info(f"Score extrait avec succès: {score}")
+                    return score
             
             logger.warning(f"Aucun score trouvé dans le format attendu. Texte complet: {json.dumps(quality_result)}")
             return 0.5
@@ -64,8 +96,13 @@ class QuestionCrew:
         try:
             logger.info(f"Analyse de la réponse du manager: {json.dumps(manager_result)}")
             
+            if not manager_result or manager_result.isspace():
+                logger.warning("Réponse du manager vide")
+                return {"status": "rejeté", "final_answer": ""}
+            
             # Extrait d'abord la réponse finale
             final_answer = self._extract_final_answer(manager_result)
+            logger.debug(f"Réponse finale extraite: {json.dumps(final_answer)}")
             
             # Format attendu dans la réponse finale: "STATUS|RÉPONSE"
             parts = final_answer.split('|', 1)
@@ -82,8 +119,10 @@ class QuestionCrew:
                 logger.info(f"Extraction réussie - Status: {status}, Réponse: {json.dumps(response)}")
                 return {"status": status, "final_answer": response}
             
-            logger.warning("Format de réponse du manager invalide")
-            return {"status": "rejeté", "final_answer": ""}
+            # Si le format n'est pas correct, on essaie de détecter le statut dans le texte
+            status = 'validé' if 'validé' in final_answer.lower() else 'rejeté'
+            logger.warning(f"Format de réponse du manager non standard, statut détecté: {status}")
+            return {"status": status, "final_answer": final_answer}
             
         except Exception as e:
             logger.error(f"Erreur lors de l'extraction de la réponse du manager: {str(e)}")
@@ -100,7 +139,10 @@ class QuestionCrew:
                 IMPORTANT: Votre réponse doit être une question reformulée, rien d'autre.
                 Exemple de format attendu: "Quels sont les principaux attraits touristiques de la ville de Grasse ?"
                 
-                Répondez UNIQUEMENT avec la question reformulée, sans autre texte.""",
+                Répondez UNIQUEMENT avec la question reformulée, sans autre texte.
+                
+                Format de réponse attendu:
+                Final Answer: [VOTRE QUESTION REFORMULÉE]""",
                 agent=self.prompt_manager
             )
 
@@ -121,7 +163,10 @@ class QuestionCrew:
                 IMPORTANT: Votre réponse doit être concise mais complète.
                 Concentrez-vous sur les faits les plus importants.
                 
-                Répondez directement avec les informations, sans formules de politesse.""",
+                Répondez directement avec les informations, sans formules de politesse.
+                
+                Format de réponse attendu:
+                Final Answer: [VOTRE RÉPONSE]""",
                 agent=self.ai_analyst
             )
 
@@ -141,7 +186,10 @@ class QuestionCrew:
                 description=f"""Évaluez la qualité et la pertinence de cette réponse : {answer}
                 IMPORTANT: Vous devez fournir UNIQUEMENT un score numérique au format 'Score: X.XX'.
                 Exemple: 'Score: 0.95'
-                Ne donnez aucune autre information ou explication.""",
+                Ne donnez aucune autre information ou explication.
+                
+                Format de réponse attendu:
+                Final Answer: Score: [VOTRE SCORE]""",
                 agent=self.quality_controller
             )
 
@@ -169,10 +217,10 @@ class QuestionCrew:
                 IMPORTANT: Si le score est >= 0.7, vous devez valider la réponse.
                 Si le score est < 0.7, vous devez rejeter la réponse.
                 
-                Votre réponse doit suivre ce format exact:
-                'validé|[COPIEZ LA RÉPONSE ICI SI ELLE EST SATISFAISANTE]'
+                Format de réponse attendu:
+                Final Answer: validé|[COPIEZ LA RÉPONSE ICI SI ELLE EST SATISFAISANTE]
                 ou
-                'rejeté|[RAISON DU REJET]'""",
+                Final Answer: rejeté|[RAISON DU REJET]""",
                 agent=self.general_manager
             )
 
