@@ -55,6 +55,33 @@ class QuestionCrew:
             logger.error(f"Texte qui a causé l'erreur: {json.dumps(quality_result)}")
             return 0.5
 
+    def _extract_manager_response(self, manager_result: str) -> Dict[str, str]:
+        """Extrait la validation et la réponse finale du General Manager."""
+        try:
+            logger.info(f"Analyse de la réponse du manager: {json.dumps(manager_result)}")
+            
+            # Format attendu: "STATUS|RÉPONSE" (ex: "validé|Voici la réponse finale...")
+            parts = manager_result.split('|', 1)
+            
+            if len(parts) == 2:
+                status = parts[0].strip().lower()
+                response = parts[1].strip()
+                
+                # Vérifie que le status est valide
+                if status not in ['validé', 'rejeté']:
+                    logger.warning(f"Status invalide '{status}', utilisation de 'rejeté'")
+                    status = 'rejeté'
+                
+                logger.info(f"Extraction réussie - Status: {status}, Réponse: {json.dumps(response)}")
+                return {"status": status, "final_answer": response}
+            
+            logger.warning("Format de réponse du manager invalide")
+            return {"status": "rejeté", "final_answer": ""}
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de l'extraction de la réponse du manager: {str(e)}")
+            return {"status": "erreur", "final_answer": ""}
+
     def _process_task_results(self, results: List[str]) -> Dict:
         """Traite les résultats des tâches et les formate correctement."""
         try:
@@ -66,28 +93,32 @@ class QuestionCrew:
             refined = self._safe_str(results[0])
             answer = self._safe_str(results[1])
             quality = self._safe_str(results[2])
-            status = self._safe_str(results[3])
+            
+            # Extraction de la validation et de la réponse finale du manager
+            manager_response = self._extract_manager_response(self._safe_str(results[3]))
 
             logger.info(f"Résultats traités:")
             logger.info(f"Question raffinée: {json.dumps(refined)}")
-            logger.info(f"Réponse: {json.dumps(answer)}")
+            logger.info(f"Réponse initiale: {json.dumps(answer)}")
             logger.info(f"Qualité: {json.dumps(quality)}")
-            logger.info(f"Statut: {json.dumps(status)}")
+            logger.info(f"Réponse du manager: {json.dumps(manager_response)}")
 
             return {
                 "refined_question": refined,
-                "answer": answer,
+                "initial_answer": answer,
                 "quality_score": self._extract_score(quality),
-                "status": status
+                "status": manager_response["status"],
+                "final_answer": manager_response["final_answer"]
             }
         except Exception as e:
             logger.error(f"Erreur lors du traitement des résultats: {str(e)}")
             logger.exception("Détails de l'erreur:")
             return {
                 "refined_question": "",
-                "answer": "",
+                "initial_answer": "",
                 "quality_score": 0.5,
-                "status": "erreur"
+                "status": "erreur",
+                "final_answer": ""
             }
 
     def process_question(self, question: str) -> Dict:
@@ -120,9 +151,15 @@ class QuestionCrew:
             )
 
             task4 = Task(
-                description="""Validez la réponse finale.
-                IMPORTANT: Répondez UNIQUEMENT par 'validé' ou 'rejeté'.
-                Ne donnez aucune autre information ou explication.""",
+                description="""Validez la réponse finale et envoyez-la.
+                IMPORTANT: Votre réponse doit suivre ce format exact:
+                'validé|[RÉPONSE FINALE]' ou 'rejeté|[RAISON DU REJET]'
+                
+                Exemple de réponse validée:
+                'validé|Grasse est mondialement connue comme la capitale mondiale du parfum. La ville abrite de nombreuses parfumeries historiques et propose des visites guidées des usines de parfum.'
+                
+                Exemple de réponse rejetée:
+                'rejeté|La réponse manque de précision et de sources fiables.'""",
                 agent=self.general_manager
             )
 
