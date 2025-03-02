@@ -174,9 +174,9 @@ class QuestionCrew:
             logger.info("Démarrage de l'exécution du crew")
             result = crew.kickoff()
             
-            # Ajout d'un délai de 30 secondes pour la coordination
-            logger.info("Attente de 30 secondes pour la coordination des agents...")
-            time.sleep(30)
+            # Ajout d'un délai de 5 secondes pour la coordination
+            logger.info("Attente de 5 secondes pour la coordination des agents...")
+            time.sleep(5)
             
             logger.info("Crew terminé, traitement des résultats")
 
