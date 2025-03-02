@@ -4,6 +4,7 @@ from app.agents.crew_agents import AgentFactory
 from loguru import logger
 import re
 import json
+import time
 
 class QuestionCrew:
     def __init__(self, agent_params: Optional[Dict] = None):
@@ -135,6 +136,11 @@ class QuestionCrew:
 
             logger.info("Démarrage de l'exécution du crew")
             result = crew.kickoff()
+            
+            # Ajout d'un délai de 30 secondes pour la coordination
+            logger.info("Attente de 30 secondes pour la coordination des agents...")
+            time.sleep(30)
+            
             logger.info("Crew terminé, traitement des résultats")
 
             # Traitement des résultats
