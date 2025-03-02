@@ -8,6 +8,7 @@ class QuestionRequest(BaseModel):
 class QuestionResponse(BaseModel):
     original_question: str
     refined_question: str
-    answer: str
+    initial_answer: str
     quality_score: float
-    status: str 
+    status: str
+    final_answer: str 
