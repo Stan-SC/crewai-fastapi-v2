@@ -20,15 +20,19 @@ class QuestionCrew:
         self.general_manager = self.agent_factory.create_general_manager(self.agent_params)
         logger.info("Tous les agents ont été créés avec succès")
 
-    def _safe_str(self, value: any) -> str:
-        """Convertit de manière sécurisée une valeur en chaîne de caractères."""
+    def _extract_final_answer(self, text: str) -> str:
+        """Extrait la réponse finale du texte complet."""
         try:
-            if isinstance(value, (list, dict)):
-                return json.dumps(value, ensure_ascii=False)
-            return str(value).strip()
+            if not text:
+                return ""
+            # Recherche le texte après "Final Answer:"
+            match = re.search(r'Final Answer:\s*(.*?)(?=\n|$)', text, re.DOTALL)
+            if match:
+                return match.group(1).strip()
+            return text.strip()
         except Exception as e:
-            logger.error(f"Erreur lors de la conversion en chaîne: {str(e)}")
-            return ""
+            logger.error(f"Erreur lors de l'extraction de la réponse finale: {str(e)}")
+            return text.strip()
 
     def _extract_score(self, quality_result: str) -> float:
         """Extrait le score numérique de la réponse du Quality Controller."""
@@ -60,8 +64,11 @@ class QuestionCrew:
         try:
             logger.info(f"Analyse de la réponse du manager: {json.dumps(manager_result)}")
             
-            # Format attendu: "STATUS|RÉPONSE" (ex: "validé|Voici la réponse finale...")
-            parts = manager_result.split('|', 1)
+            # Extrait d'abord la réponse finale
+            final_answer = self._extract_final_answer(manager_result)
+            
+            # Format attendu dans la réponse finale: "STATUS|RÉPONSE"
+            parts = final_answer.split('|', 1)
             
             if len(parts) == 2:
                 status = parts[0].strip().lower()
@@ -82,45 +89,6 @@ class QuestionCrew:
             logger.error(f"Erreur lors de l'extraction de la réponse du manager: {str(e)}")
             return {"status": "erreur", "final_answer": ""}
 
-    def _process_task_results(self, results: List[str]) -> Dict:
-        """Traite les résultats des tâches et les formate correctement."""
-        try:
-            logger.info("Traitement des résultats des tâches...")
-            for i, result in enumerate(results):
-                logger.info(f"Résultat brut de la tâche {i+1}: {json.dumps(result)}")
-                logger.info(f"Type du résultat: {type(result)}")
-
-            refined = self._safe_str(results[0])
-            answer = self._safe_str(results[1])
-            quality = self._safe_str(results[2])
-            
-            # Extraction de la validation et de la réponse finale du manager
-            manager_response = self._extract_manager_response(self._safe_str(results[3]))
-
-            logger.info(f"Résultats traités:")
-            logger.info(f"Question raffinée: {json.dumps(refined)}")
-            logger.info(f"Réponse initiale: {json.dumps(answer)}")
-            logger.info(f"Qualité: {json.dumps(quality)}")
-            logger.info(f"Réponse du manager: {json.dumps(manager_response)}")
-
-            return {
-                "refined_question": refined,
-                "initial_answer": answer,
-                "quality_score": self._extract_score(quality),
-                "status": manager_response["status"],
-                "final_answer": manager_response["final_answer"]
-            }
-        except Exception as e:
-            logger.error(f"Erreur lors du traitement des résultats: {str(e)}")
-            logger.exception("Détails de l'erreur:")
-            return {
-                "refined_question": "",
-                "initial_answer": "",
-                "quality_score": 0.5,
-                "status": "erreur",
-                "final_answer": ""
-            }
-
     def process_question(self, question: str) -> Dict:
         try:
             logger.info(f"Début du traitement de la question: {json.dumps(question)}")
@@ -133,18 +101,18 @@ class QuestionCrew:
                 Exemple de format attendu: "Quels sont les principaux attraits touristiques de la ville de Grasse ?"
                 
                 Répondez UNIQUEMENT avec la question reformulée, sans autre texte.""",
-                agent=self.prompt_manager,
-                output_format="La question reformulée uniquement"
+                agent=self.prompt_manager
             )
 
-            # Attente de la question reformulée
+            # Obtention de la question reformulée
             logger.info("Obtention de la question reformulée...")
             initial_crew = Crew(
                 agents=[self.prompt_manager],
                 tasks=[task1],
                 verbose=True
             )
-            refined_question = self._safe_str(initial_crew.kickoff()[0])
+            initial_result = initial_crew.kickoff()
+            refined_question = self._extract_final_answer(initial_result[0])
             logger.info(f"Question reformulée: {json.dumps(refined_question)}")
 
             # Création de la tâche d'analyse
@@ -154,8 +122,7 @@ class QuestionCrew:
                 Concentrez-vous sur les faits les plus importants.
                 
                 Répondez directement avec les informations, sans formules de politesse.""",
-                agent=self.ai_analyst,
-                output_format="La réponse directe sans formules de politesse"
+                agent=self.ai_analyst
             )
 
             # Obtention de la réponse
@@ -165,7 +132,8 @@ class QuestionCrew:
                 tasks=[task2],
                 verbose=True
             )
-            answer = self._safe_str(analyst_crew.kickoff()[0])
+            analyst_result = analyst_crew.kickoff()
+            answer = self._extract_final_answer(analyst_result[0])
             logger.info(f"Réponse générée: {json.dumps(answer)}")
 
             # Évaluation de la qualité
@@ -174,8 +142,7 @@ class QuestionCrew:
                 IMPORTANT: Vous devez fournir UNIQUEMENT un score numérique au format 'Score: X.XX'.
                 Exemple: 'Score: 0.95'
                 Ne donnez aucune autre information ou explication.""",
-                agent=self.quality_controller,
-                output_format="Score: X.XX"
+                agent=self.quality_controller
             )
 
             # Obtention du score
@@ -185,7 +152,8 @@ class QuestionCrew:
                 tasks=[task3],
                 verbose=True
             )
-            quality = self._safe_str(quality_crew.kickoff()[0])
+            quality_result = quality_crew.kickoff()
+            quality = self._extract_final_answer(quality_result[0])
             score = self._extract_score(quality)
             logger.info(f"Score de qualité: {score}")
 
@@ -202,15 +170,10 @@ class QuestionCrew:
                 Si le score est < 0.7, vous devez rejeter la réponse.
                 
                 Votre réponse doit suivre ce format exact:
-                'validé|[RÉPONSE FINALE]' ou 'rejeté|[RAISON DU REJET]'
-                
-                Exemple de réponse validée:
                 'validé|[COPIEZ LA RÉPONSE ICI SI ELLE EST SATISFAISANTE]'
-                
-                Exemple de réponse rejetée:
-                'rejeté|La réponse manque de précision et de sources fiables.'""",
-                agent=self.general_manager,
-                output_format="validé|RÉPONSE ou rejeté|RAISON"
+                ou
+                'rejeté|[RAISON DU REJET]'""",
+                agent=self.general_manager
             )
 
             # Obtention de la validation
@@ -220,8 +183,8 @@ class QuestionCrew:
                 tasks=[task4],
                 verbose=True
             )
-            manager_result = self._safe_str(manager_crew.kickoff()[0])
-            manager_response = self._extract_manager_response(manager_result)
+            manager_result = manager_crew.kickoff()
+            manager_response = self._extract_manager_response(manager_result[0])
             logger.info(f"Validation du manager: {json.dumps(manager_response)}")
             
             # Préparation de la réponse finale
