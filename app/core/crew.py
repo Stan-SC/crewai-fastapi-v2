@@ -128,12 +128,40 @@ class QuestionCrew:
             logger.error(f"Erreur lors de l'extraction de la réponse du manager: {str(e)}")
             return {"status": "erreur", "final_answer": ""}
 
+    def _execute_task(self, task: Task, crew_name: str) -> str:
+        """Exécute une tâche avec un équipage d'un seul agent et retourne la réponse."""
+        try:
+            logger.info(f"Exécution de la tâche pour {crew_name}...")
+            crew = Crew(
+                agents=[task.agent],
+                tasks=[task],
+                verbose=True
+            )
+            
+            # Exécution de la tâche
+            result = crew.kickoff()
+            if not result or len(result) == 0:
+                logger.error(f"Aucun résultat obtenu pour {crew_name}")
+                return ""
+                
+            # Extraction et validation de la réponse
+            response = self._extract_final_answer(result[0])
+            if not response:
+                logger.warning(f"Réponse vide obtenue pour {crew_name}")
+                return ""
+                
+            logger.info(f"Réponse obtenue pour {crew_name}: {json.dumps(response)}")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de l'exécution de la tâche pour {crew_name}: {str(e)}")
+            return ""
+
     def process_question(self, question: str) -> Dict:
         try:
             logger.info(f"Début du traitement de la question: {json.dumps(question)}")
             
-            # Création des tâches
-            logger.info("Création des tâches...")
+            # Création et exécution de la tâche de reformulation
             task1 = Task(
                 description=f"""Analysez et reformulez la question suivante pour plus de clarté : {question}
                 IMPORTANT: Votre réponse doit être une question reformulée, rien d'autre.
@@ -145,19 +173,10 @@ class QuestionCrew:
                 Final Answer: [VOTRE QUESTION REFORMULÉE]""",
                 agent=self.prompt_manager
             )
-
-            # Obtention de la question reformulée
-            logger.info("Obtention de la question reformulée...")
-            initial_crew = Crew(
-                agents=[self.prompt_manager],
-                tasks=[task1],
-                verbose=True
-            )
-            initial_result = initial_crew.kickoff()
-            refined_question = self._extract_final_answer(initial_result[0])
+            refined_question = self._execute_task(task1, "Prompt Manager")
             logger.info(f"Question reformulée: {json.dumps(refined_question)}")
 
-            # Création de la tâche d'analyse
+            # Création et exécution de la tâche d'analyse
             task2 = Task(
                 description=f"""Générez une réponse détaillée et précise à cette question : {refined_question}
                 IMPORTANT: Votre réponse doit être concise mais complète.
@@ -169,19 +188,10 @@ class QuestionCrew:
                 Final Answer: [VOTRE RÉPONSE]""",
                 agent=self.ai_analyst
             )
-
-            # Obtention de la réponse
-            logger.info("Obtention de la réponse...")
-            analyst_crew = Crew(
-                agents=[self.ai_analyst],
-                tasks=[task2],
-                verbose=True
-            )
-            analyst_result = analyst_crew.kickoff()
-            answer = self._extract_final_answer(analyst_result[0])
+            answer = self._execute_task(task2, "AI Analyst")
             logger.info(f"Réponse générée: {json.dumps(answer)}")
 
-            # Évaluation de la qualité
+            # Création et exécution de la tâche d'évaluation
             task3 = Task(
                 description=f"""Évaluez la qualité et la pertinence de cette réponse : {answer}
                 IMPORTANT: Vous devez fournir UNIQUEMENT un score numérique au format 'Score: X.XX'.
@@ -192,20 +202,11 @@ class QuestionCrew:
                 Final Answer: Score: [VOTRE SCORE]""",
                 agent=self.quality_controller
             )
-
-            # Obtention du score
-            logger.info("Évaluation de la qualité...")
-            quality_crew = Crew(
-                agents=[self.quality_controller],
-                tasks=[task3],
-                verbose=True
-            )
-            quality_result = quality_crew.kickoff()
-            quality = self._extract_final_answer(quality_result[0])
+            quality = self._execute_task(task3, "Quality Controller")
             score = self._extract_score(quality)
             logger.info(f"Score de qualité: {score}")
 
-            # Validation finale
+            # Création et exécution de la tâche de validation
             task4 = Task(
                 description=f"""Validez la réponse finale et envoyez-la.
                 
@@ -223,16 +224,8 @@ class QuestionCrew:
                 Final Answer: rejeté|[RAISON DU REJET]""",
                 agent=self.general_manager
             )
-
-            # Obtention de la validation
-            logger.info("Validation finale...")
-            manager_crew = Crew(
-                agents=[self.general_manager],
-                tasks=[task4],
-                verbose=True
-            )
-            manager_result = manager_crew.kickoff()
-            manager_response = self._extract_manager_response(manager_result[0])
+            manager_result = self._execute_task(task4, "General Manager")
+            manager_response = self._extract_manager_response(manager_result)
             logger.info(f"Validation du manager: {json.dumps(manager_response)}")
             
             # Préparation de la réponse finale
