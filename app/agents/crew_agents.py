@@ -16,14 +16,14 @@ class AgentFactory:
         config = merge_agent_configs(DEFAULT_PROMPT_MANAGER_CONFIG, agent_params)
         return Agent(
             role='Prompt Manager',
-            goal='Reformuler et optimiser les questions des utilisateurs pour une meilleure clarté',
-            backstory=config["context"],
-            verbose=config.get("verbose", True),
+            goal='Analyser et reformuler les questions pour une meilleure compréhension',
+            backstory="""Vous êtes un expert en analyse et reformulation de questions.
+            Votre rôle est de comprendre l'intention derrière chaque question et de la reformuler
+            de manière claire et précise. Vous devez toujours fournir une question reformulée,
+            même si la question originale est déjà claire.""",
+            tools=[],
             allow_delegation=False,
-            temperature=config.get("temperature", 0.7),
-            model=DEFAULT_MODEL,
-            max_iterations=config.get("max_iterations", 3),
-            **{k: v for k, v in config.items() if k not in ["context", "verbose", "temperature", "model", "max_iterations"]}
+            verbose=True
         )
 
     @staticmethod
@@ -31,14 +31,14 @@ class AgentFactory:
         config = merge_agent_configs(DEFAULT_AI_ANALYST_CONFIG, agent_params)
         return Agent(
             role='AI Analyst',
-            goal='Générer des réponses précises et pertinentes aux questions',
-            backstory=config["context"],
-            verbose=config.get("verbose", True),
+            goal='Générer des réponses précises et informatives',
+            backstory="""Vous êtes un expert en analyse et en génération de réponses.
+            Votre rôle est de fournir des réponses détaillées, précises et factuelles aux questions posées.
+            Vous devez toujours structurer vos réponses de manière claire et concise, en vous concentrant
+            sur les informations les plus pertinentes.""",
+            tools=[],
             allow_delegation=False,
-            temperature=config.get("temperature", 0.5),
-            model=DEFAULT_MODEL,
-            max_iterations=config.get("max_iterations", 3),
-            **{k: v for k, v in config.items() if k not in ["context", "verbose", "temperature", "model", "max_iterations"]}
+            verbose=True
         )
 
     @staticmethod
@@ -46,16 +46,20 @@ class AgentFactory:
         config = merge_agent_configs(DEFAULT_QUALITY_CONTROLLER_CONFIG, agent_params)
         return Agent(
             role='Quality Controller',
-            goal='Évaluer la qualité des réponses et fournir un score numérique entre 0 et 1',
-            backstory="""Expert en contrôle qualité chargé d'évaluer la pertinence et l'exactitude des réponses.
-            Vous devez toujours fournir un score numérique entre 0 et 1, où 1 représente une réponse parfaite.
-            Format de réponse requis : "Score: [0-1]". Exemple : "Score: 0.95" """,
-            verbose=config.get("verbose", True),
+            goal='Évaluer la qualité des réponses et fournir un score numérique',
+            backstory="""Vous êtes un expert en contrôle qualité.
+            Votre rôle est d'évaluer la qualité et la pertinence des réponses.
+            Vous devez fournir un score numérique entre 0 et 1, où:
+            - 1.0 représente une réponse parfaite
+            - 0.0 représente une réponse totalement inadéquate
+            
+            IMPORTANT: Votre réponse doit TOUJOURS être au format exact:
+            Final Answer: Score: X.XX
+            
+            Exemple: Final Answer: Score: 0.95""",
+            tools=[],
             allow_delegation=False,
-            temperature=config.get("temperature", 0.3),
-            model=DEFAULT_MODEL,
-            max_iterations=config.get("max_iterations", 3),
-            **{k: v for k, v in config.items() if k not in ["context", "verbose", "temperature", "model", "max_iterations"]}
+            verbose=True
         )
 
     @staticmethod
@@ -63,12 +67,21 @@ class AgentFactory:
         config = merge_agent_configs(DEFAULT_GENERAL_MANAGER_CONFIG, agent_params)
         return Agent(
             role='General Manager',
-            goal='Superviser le processus et valider les réponses finales',
-            backstory=config["context"],
-            verbose=config.get("verbose", True),
-            allow_delegation=True,
-            temperature=config.get("temperature", 0.4),
-            model=DEFAULT_MODEL,
-            max_iterations=config.get("max_iterations", 3),
-            **{k: v for k, v in config.items() if k not in ["context", "verbose", "temperature", "model", "max_iterations"]}
+            goal='Valider et finaliser les réponses',
+            backstory="""Vous êtes le manager général responsable de la validation finale des réponses.
+            Votre rôle est de vous assurer que les réponses sont de haute qualité et appropriées.
+            
+            IMPORTANT: Votre réponse doit TOUJOURS être au format exact:
+            Final Answer: validé|[RÉPONSE]
+            ou
+            Final Answer: rejeté|[RAISON]
+            
+            Exemple de validation:
+            Final Answer: validé|La ville de Grasse est la capitale mondiale du parfum.
+            
+            Exemple de rejet:
+            Final Answer: rejeté|La réponse est incomplète.""",
+            tools=[],
+            allow_delegation=False,
+            verbose=True
         ) 
